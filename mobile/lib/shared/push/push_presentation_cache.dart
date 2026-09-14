@@ -15,6 +15,13 @@ Future<void> _presentationExportTail = Future.value();
 const _maximumPresentationExports = 8;
 int _outstandingPresentationExports = 0;
 
+/// Temporary admission failure; detached producers must retain and retry input.
+class PushPresentationExportQueueFull extends StateError {
+  /// Creates a saturation error for the shared eight-export budget.
+  PushPresentationExportQueueFull()
+    : super('Push presentation export queue is full (8 outstanding exports)');
+}
+
 /// The latest best-effort App Group presentation-cache failure.
 final pushPresentationCacheError = ValueNotifier<String?>(null);
 
@@ -106,9 +113,7 @@ Future<void> _serializePresentationExport(
   Future<void> Function() export,
 ) async {
   if (_outstandingPresentationExports >= _maximumPresentationExports) {
-    throw StateError(
-      'Push presentation export queue is full (8 outstanding exports)',
-    );
+    throw PushPresentationExportQueueFull();
   }
   _outstandingPresentationExports++;
   final previous = _presentationExportTail;

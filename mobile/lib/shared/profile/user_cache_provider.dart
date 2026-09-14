@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../community/community_provider.dart';
 import '../crypto/nip_oa.dart';
 import '../push/push_presentation_cache.dart';
+import '../push/push_presentation_export_recovery.dart';
 import '../relay/relay.dart';
 import 'user_profile.dart';
 
@@ -14,6 +15,7 @@ import 'user_profile.dart';
 /// kind:0 batch query (NIP-01 `authors` filter) every 50ms.
 class UserCacheNotifier extends Notifier<Map<String, UserProfile>> {
   final Set<String> _pending = {};
+  final _pushExport = PushPresentationExportRecovery();
   final Map<String, ({int createdAt, String eventId})> _profileEventOrders = {};
   Timer? _batchTimer;
   Completer<bool>? _batchCompleter;
@@ -141,7 +143,11 @@ class UserCacheNotifier extends Notifier<Map<String, UserProfile>> {
         ..addAll(updatedOrders);
       state = updated;
       if (communityID != null) {
-        unawaited(cacheBuzzPushProfileEvents(communityID, events));
+        unawaited(
+          _pushExport.export(
+            () => cacheBuzzPushProfileEvents(communityID, events),
+          ),
+        );
       }
       succeeded = true;
     } catch (_) {

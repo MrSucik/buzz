@@ -7,6 +7,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../shared/community/community_provider.dart';
 import '../../shared/push/push_presentation_cache.dart';
+import '../../shared/push/push_presentation_export_recovery.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme_provider.dart';
 import '../../shared/utils/string_utils.dart';
@@ -41,6 +42,8 @@ const _authoredRootIdsPrefix = 'buzz-thread-authored.v1';
 /// for any visible channel event kind. Chunks stay within the relay's explicit
 /// channel cap and incoming events bump `lastMessageAt` for their channel.
 class ChannelsNotifier extends AsyncNotifier<List<Channel>> {
+  final _pushExport = PushPresentationExportRecovery();
+
   static const _backstopInterval = Duration(seconds: 60);
 
   final Map<String, _LiveChunkSubscription> _liveSubscriptionsByChunk = {};
@@ -300,10 +303,12 @@ class ChannelsNotifier extends AsyncNotifier<List<Channel>> {
     // linkage validation and member-count hydration.
     if (memberEvents.isNotEmpty) _cacheMemberSnapshots(memberEvents);
     unawaited(
-      cacheBuzzPushChannelEvents(communityID, dedupedMetas, [
-        ...memberships,
-        ...memberEvents,
-      ]),
+      _pushExport.export(
+        () => cacheBuzzPushChannelEvents(communityID, dedupedMetas, [
+          ...memberships,
+          ...memberEvents,
+        ]),
+      ),
     );
     final memberCounts = _memberCountsByChannelId(memberEvents);
     for (var i = 0; i < channels.length; i++) {
