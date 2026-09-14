@@ -829,6 +829,7 @@ mobile-check:
 
 # Run mobile tests
 mobile-test:
+    /bin/bash ./scripts/test-mobile-gateway-recipes.sh
     unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter test --dart-define=BUZZ_PUSH_GATEWAY_URL=https://push.example
     unset GIT_DIR GIT_WORK_TREE; cd {{mobile_dir}} && flutter test test/shared/push/push_unconfigured_build_test.dart
 
@@ -842,13 +843,13 @@ mobile-build-android:
     #!/usr/bin/env bash
     set -euo pipefail
     ./scripts/mobile-worktree-overrides.sh
-    gateway_args=()
+    set -- build apk --debug --no-pub
     if [[ -n "${BUZZ_PUSH_GATEWAY_URL:-}" ]]; then
-        gateway_args+=(--dart-define="BUZZ_PUSH_GATEWAY_URL=${BUZZ_PUSH_GATEWAY_URL}")
+        set -- "$@" --dart-define="BUZZ_PUSH_GATEWAY_URL=${BUZZ_PUSH_GATEWAY_URL}"
     fi
     unset GIT_DIR GIT_WORK_TREE
     cd {{mobile_dir}}
-    flutter build apk --debug --no-pub "${gateway_args[@]}"
+    flutter "$@"
 
 # Run the mobile app on iOS simulator (worktree-aware debug identity)
 mobile-dev:
@@ -864,13 +865,13 @@ mobile-dev:
     if [[ -z "$gateway_url" && -f "$overrides_file" ]]; then
         gateway_url="$(sed -nE 's/^[[:space:]]*BUZZ_PUSH_GATEWAY_URL[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*$/\1/p' "$overrides_file" | tail -n 1 | sed 's/\$()//g')"
     fi
-    gateway_args=()
+    set -- run
     if [[ -n "$gateway_url" ]]; then
-        gateway_args+=(--dart-define="BUZZ_PUSH_GATEWAY_URL=${gateway_url}")
+        set -- "$@" --dart-define="BUZZ_PUSH_GATEWAY_URL=${gateway_url}"
     fi
     cd {{mobile_dir}}
     unset GIT_DIR GIT_WORK_TREE
-    flutter run "${gateway_args[@]}"
+    flutter "$@"
 
 # Uninstall stale worktree-suffixed Buzz debug installs (production apps kept)
 mobile-clean:
