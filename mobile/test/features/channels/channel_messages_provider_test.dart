@@ -11,6 +11,74 @@ import 'package:buzz/features/channels/timeline_message.dart';
 import 'package:buzz/shared/relay/relay.dart';
 
 void main() {
+  for (final retainDeepLink in [false, true]) {
+    test(
+      'live window keeps chronological order with retained deep link: $retainDeepLink',
+      () async {
+        final relaySession = _RecordingRelaySessionNotifier(
+          queryResults: [
+            [
+              _event(id: 'newer-history', createdAt: 20),
+              _event(id: 'older-history', createdAt: 10),
+              _bounds(),
+            ],
+          ],
+        );
+        final container = _buildContainer(relaySession);
+        addTearDown(container.dispose);
+        container.read(channelMessagesProvider(_channelId));
+        await relaySession.subscribed;
+        await _pumpEventQueue();
+        final notifier = container.read(
+          channelMessagesProvider(_channelId).notifier,
+        );
+        if (retainDeepLink) {
+          final load = notifier.loadEventsById(['deep-link']);
+          relaySession.completeTargetHistory([
+            _event(id: 'deep-link', createdAt: 5),
+          ]);
+          await load;
+        }
+
+        // Older live rows must insert in order, including the descending-id
+        // tie-break within a second, on both sides of the deep-link fast path.
+        relaySession.emit(_event(id: 'a-live', createdAt: 15));
+        relaySession.emit(_event(id: 'z-live', createdAt: 15));
+        expect(
+          container
+              .read(channelMessagesProvider(_channelId))
+              .value!
+              .map((event) => event.id),
+          [
+            if (retainDeepLink) 'deep-link',
+            'older-history',
+            'z-live',
+            'a-live',
+            'newer-history',
+          ],
+        );
+
+        if (retainDeepLink) {
+          notifier.releaseDeepLinkEvents(['deep-link']);
+          relaySession.emit(_event(id: 'newest-live', createdAt: 30));
+          expect(
+            container
+                .read(channelMessagesProvider(_channelId))
+                .value!
+                .map((event) => event.id),
+            [
+              'older-history',
+              'z-live',
+              'a-live',
+              'newer-history',
+              'newest-live',
+            ],
+          );
+        }
+      },
+    );
+  }
+
   test(
     'keeps live events that arrive while initial history is loading',
     () async {
