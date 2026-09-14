@@ -11,6 +11,37 @@ import 'package:buzz/features/channels/timeline_message.dart';
 import 'package:buzz/shared/relay/relay.dart';
 
 void main() {
+  test('live window without deep links does not rescan flattened ids', () async {
+    var historyIdReads = 0;
+    final history = _IdReadTrackingEvent(
+      _event(id: 'history', createdAt: 10),
+      onIdRead: () => historyIdReads++,
+    );
+    final relaySession = _RecordingRelaySessionNotifier(
+      queryResults: [
+        [history, _bounds()],
+      ],
+    );
+    final container = _buildContainer(relaySession);
+    addTearDown(container.dispose);
+    container.read(channelMessagesProvider(_channelId));
+    await relaySession.subscribed;
+    await _pumpEventQueue();
+
+    historyIdReads = 0;
+    relaySession.emit(_event(id: 'live', createdAt: 20));
+
+    // One read checks page membership; one builds the flattened window. The
+    // distinct timestamps need no id tie-break when sorting. A redundant
+    // deep-link merge would read the historical id a third time to build its
+    // dedup set. Allow fewer reads if either required pass is optimized later.
+    expect(historyIdReads, lessThanOrEqualTo(2));
+    expect(
+      container.read(channelMessagesProvider(_channelId)).value!.length,
+      2,
+    );
+  });
+
   for (final retainDeepLink in [false, true]) {
     test(
       'live window keeps chronological order with retained deep link: $retainDeepLink',
@@ -1034,6 +1065,27 @@ void main() {
 }
 
 const _channelId = '11111111-1111-4111-8111-111111111111';
+
+class _IdReadTrackingEvent extends NostrEvent {
+  final void Function() onIdRead;
+
+  _IdReadTrackingEvent(NostrEvent event, {required this.onIdRead})
+    : super(
+        id: event.id,
+        pubkey: event.pubkey,
+        createdAt: event.createdAt,
+        kind: event.kind,
+        tags: event.tags,
+        content: event.content,
+        sig: event.sig,
+      );
+
+  @override
+  String get id {
+    onIdRead();
+    return super.id;
+  }
+}
 
 ProviderContainer _buildContainer(_RecordingRelaySessionNotifier relaySession) {
   return ProviderContainer(
