@@ -11,6 +11,9 @@ const _pushPresentationChannel = MethodChannel('buzz/push');
 const _maximumAvatarSourceBytes = 512 * 1024;
 const _maximumAvatarPNGBytes = 64 * 1024;
 Future<void> _avatarEncodeTail = Future.value();
+Future<void> _presentationExportTail = Future.value();
+const _maximumPresentationExports = 8;
+int _outstandingPresentationExports = 0;
 
 /// The latest best-effort App Group presentation-cache failure.
 final pushPresentationCacheError = ValueNotifier<String?>(null);
@@ -34,6 +37,7 @@ bool isVerifiedPushPresentationEvent(NostrEvent event) {
 }
 
 /// Exports raw verified kind-0 events. Native code verifies them again before storage.
+/// Fails with [StateError] when eight exports are already outstanding.
 Future<void> cacheBuzzPushProfileEvents(
   String communityID,
   Iterable<NostrEvent> events,
@@ -41,20 +45,25 @@ Future<void> cacheBuzzPushProfileEvents(
   if (defaultTargetPlatform != TargetPlatform.iOS || communityID.isEmpty) {
     return;
   }
-  final verified = _newestVerifiedEvents(
-    events,
-    kind: 0,
-    scope: (event) => event.pubkey.toLowerCase(),
-  ).values.toList();
-  if (verified.isEmpty) return;
-  await _invokeBestEffort({
-    'section': 'profiles',
-    'communityId': communityID,
-    'events': [for (final event in verified) event.toJson()],
+  final batch = events.toList(growable: false);
+  if (batch.isEmpty) return;
+  await _serializePresentationExport(() async {
+    final verified = await compute(
+      _selectPushProfileEvents,
+      batch,
+      debugLabel: 'buzz-push-profile-cache',
+    );
+    if (verified.isEmpty) return;
+    await _invokeBestEffort({
+      'section': 'profiles',
+      'communityId': communityID,
+      'events': [for (final event in verified) event.toJson()],
+    });
   });
 }
 
 /// Exports verified channel metadata and membership for native authority checks.
+/// Fails with [StateError] when eight exports are already outstanding.
 Future<void> cacheBuzzPushChannelEvents(
   String? communityID,
   Iterable<NostrEvent> metadataEvents,
@@ -65,19 +74,67 @@ Future<void> cacheBuzzPushChannelEvents(
       communityID.isEmpty) {
     return;
   }
-  final batch = selectPushChannelEvents(metadataEvents, membershipEvents);
-  final verifiedMetadata = batch.metadata;
-  final verifiedMembership = batch.membership;
-  if (verifiedMetadata.isEmpty && verifiedMembership.isEmpty) return;
-  await _invokeBestEffort({
-    'section': 'channels',
-    'communityId': communityID,
-    'metadataEvents': [for (final event in verifiedMetadata) event.toJson()],
-    'membershipEvents': [
-      for (final event in verifiedMembership) event.toJson(),
-    ],
+  final batch = (
+    metadata: metadataEvents.toList(growable: false),
+    membership: membershipEvents.toList(growable: false),
+  );
+  if (batch.metadata.isEmpty && batch.membership.isEmpty) return;
+  await _serializePresentationExport(() async {
+    final verified = await compute(
+      _selectPushChannelBatch,
+      batch,
+      debugLabel: 'buzz-push-channel-cache',
+    );
+    if (verified.metadata.isEmpty && verified.membership.isEmpty) return;
+    await _invokeBestEffort({
+      'section': 'channels',
+      'communityId': communityID,
+      'metadataEvents': [for (final event in verified.metadata) event.toJson()],
+      'membershipEvents': [
+        for (final event in verified.membership) event.toJson(),
+      ],
+    });
   });
 }
+
+// Share one worker slot across profile/channel exports and retain FIFO native
+// handoff, even across community changes. The two producers are coalesced profile
+// fetches and channel refreshes. Eight outstanding batches allow a short burst
+// while bounding retained batch count; individual batch sizes remain caller-owned.
+// Saturation fails explicitly rather than acknowledging an export we cannot retain.
+Future<void> _serializePresentationExport(
+  Future<void> Function() export,
+) async {
+  if (_outstandingPresentationExports >= _maximumPresentationExports) {
+    throw StateError(
+      'Push presentation export queue is full (8 outstanding exports)',
+    );
+  }
+  _outstandingPresentationExports++;
+  final previous = _presentationExportTail;
+  final release = Completer<void>();
+  _presentationExportTail = release.future;
+  await previous;
+  try {
+    await export();
+  } finally {
+    // Keep the queue usable while propagating a worker failure to its caller.
+    _outstandingPresentationExports--;
+    release.complete();
+  }
+}
+
+List<NostrEvent> _selectPushProfileEvents(List<NostrEvent> events) =>
+    _newestVerifiedEvents(
+      events,
+      kind: 0,
+      scope: (event) => event.pubkey.toLowerCase(),
+    ).values.toList();
+
+({List<NostrEvent> metadata, List<NostrEvent> membership})
+_selectPushChannelBatch(
+  ({List<NostrEvent> metadata, List<NostrEvent> membership}) batch,
+) => selectPushChannelEvents(batch.metadata, batch.membership);
 
 /// Selects the newest paired verified channel metadata and membership events.
 @visibleForTesting
