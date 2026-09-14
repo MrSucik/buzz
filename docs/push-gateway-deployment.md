@@ -53,6 +53,25 @@ The gateway stores APNs tokens encrypted in PostgreSQL. Database backups therefo
 
 ## PostgreSQL and replicas
 
+### First deployment, not a legacy upgrade
+
+This gateway has never been deployed outside personal development infrastructure.
+This release supports a fresh dedicated database, not migration of existing
+development authority. Before running any schema migrations, `--migrate-only`
+refuses a non-empty database that has not completed gateway initialization
+(migration 0005). The error names the populated table and tells the operator to
+stop the development gateway and provision a fresh database. It does not delete
+or migrate that data. Normal deployments of an already initialized gateway may
+retain their data.
+
+Do not run a rolling upgrade from a pre-launch development binary. Stop that
+deployment before initialization, use the fresh database, and do not roll back
+to a pre-launch binary against the new database. The rolling strategy is for
+compatible versions after initial deployment; no legacy writer compatibility or
+mobile configured-to-unconfigured migration is supported. Push has no existing
+enabled users. After enabling push, retain gateway configuration in updates to
+that app identity; omitting it is not a push shutdown mechanism.
+
 The gateway's dedicated pool does not consume the relay-oriented `BUZZ_DB_LOCK_TIMEOUT_MS`, `BUZZ_DB_IDLE_TXN_TIMEOUT_MS`, or `BUZZ_DB_STATEMENT_TIMEOUT_MS` settings. Its session-timeout policy remains separate from the `buzz-db` writer policy and must be designed and rolled out independently.
 
 All replicas must share one PostgreSQL database. Delivery authority, replay admission, and endpoint quota reservation are transactional there, so replica count does not multiply the abuse ceiling. The gateway owns a scoped migration history under `crates/buzz-push-gateway/migrations`; it creates only the six `push_gateway_*` authority tables plus SQLx's migration-history table and never runs relay migrations.

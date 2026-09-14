@@ -7,6 +7,10 @@ use chrono::{DateTime, Utc};
 use sqlx::{AssertSqlSafe, PgPool, Row};
 use uuid::Uuid;
 
+#[cfg(test)]
+#[path = "postgres/bootstrap_tests.rs"]
+mod bootstrap_tests;
+
 #[derive(Clone)]
 pub struct PostgresAuthorityStore {
     pool: PgPool,
@@ -20,6 +24,9 @@ impl PostgresAuthorityStore {
         pool: &PgPool,
         runtime_role: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        sqlx::raw_sql(include_str!("postgres/bootstrap_guard.sql"))
+            .execute(pool)
+            .await?;
         sqlx::migrate!("./migrations").run(pool).await?;
         if runtime_role.is_empty()
             || runtime_role.len() > 63
