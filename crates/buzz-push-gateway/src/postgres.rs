@@ -11,6 +11,8 @@ use uuid::Uuid;
 #[path = "postgres/bootstrap_tests.rs"]
 mod bootstrap_tests;
 
+static GATEWAY_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 #[derive(Clone)]
 pub struct PostgresAuthorityStore {
     pool: PgPool,
@@ -27,7 +29,7 @@ impl PostgresAuthorityStore {
         sqlx::raw_sql(include_str!("postgres/bootstrap_guard.sql"))
             .execute(pool)
             .await?;
-        sqlx::migrate!("./migrations").run(pool).await?;
+        GATEWAY_MIGRATOR.run(pool).await?;
         if runtime_role.is_empty()
             || runtime_role.len() > 63
             || !runtime_role

@@ -20,7 +20,7 @@ async fn bootstrap_refuses_legacy_data_before_migrations_and_allows_initialized_
 
     // Legacy schema plus real authority data. The production entry point must
     // refuse before SQLx can create its history or run destructive old steps.
-    for migration in sqlx::migrate!("./migrations").iter().take(3) {
+    for migration in GATEWAY_MIGRATOR.iter().take(3) {
         sqlx::raw_sql(migration.sql.as_ref())
             .execute(&pool)
             .await
