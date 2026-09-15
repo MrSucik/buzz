@@ -782,6 +782,22 @@ impl EventQueue {
         self.queues.len()
     }
 
+    /// Whether `scope` still has work that can be reconstructed into a batch.
+    ///
+    /// Busy-owner hold timestamps are derived from pending queue state. Queue
+    /// cap eviction can retire a scope without going through a pool cleanup
+    /// path, so the dispatch loop uses this seam to prune orphaned holds before
+    /// scheduling their deadline wakeups.
+    pub(crate) fn has_pending_scope(&self, scope: &SessionScope) -> bool {
+        self.queues
+            .get(scope)
+            .is_some_and(|queue| !queue.is_empty())
+            || self
+                .cancelled_batches
+                .get(scope)
+                .is_some_and(|events| !events.is_empty())
+    }
+
     /// Number of queued events for a specific scope (or channel, treated as its
     /// conversation scope). Test-only.
     #[cfg(test)]
@@ -2660,11 +2676,17 @@ mod tests {
     fn test_format_prompt_interrupt_framing() {
         let batch = make_merged_batch(Some(CancelReason::Interrupt));
         let prompt = format_prompt(&batch, &FormatPromptArgs::default()).join("\n\n");
+        let framing = MergeFraming::for_reason(Some(CancelReason::Interrupt));
+        let new_section_tag = format!("<{}>", framing.new_tag);
 
         // Interrupt framing: the new request supersedes the previous one.
         assert!(
-            prompt.contains("<new-request-supersedes-previous>"),
+            prompt.contains(&new_section_tag),
             "interrupt prompt should use supersede framing: {prompt}"
+        );
+        assert!(
+            include_str!("base_prompt.md").contains(&new_section_tag),
+            "base prompt should document the production interrupt tag: {new_section_tag}"
         );
         assert!(
             prompt.contains("<previous-request-interrupted-before-completion>"),
