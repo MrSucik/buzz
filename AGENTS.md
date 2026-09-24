@@ -1,5 +1,7 @@
 # AGENTS.md — AI Agent Contributor Guide
 
+Class: `personal` (Daniel Suchan). Flow: `full` -> PR, review, merge and deploy without asking. Primary: https://github.com/MrSucik/buzz, default branch `main`.
+
 This guide is for AI agents contributing to the Buzz codebase. It covers
 agent-specific context and conventions. For general contributor info (setup,
 code style, PR process, architecture), see [CONTRIBUTING.md](CONTRIBUTING.md).
